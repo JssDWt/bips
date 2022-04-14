@@ -210,7 +210,13 @@ asset ID. A given Taro asset tree is composed of two nested MS-SMT instances:
 
 The root hash of an asset tree, observing [[../master/bip-0341.mediawiki|BIP-341]] is
 represented as a Tapscript tree with a single leaf:
-* <code>tagged_hash("TapLeaf", leaf_version || taro_version || asset_tree_root)</code>
+* <code>tagged_hash("TapLeaf", leaf_version || taro_marker || taro_version || asset_tree_root)</code>
+
+where:
+* <code>taro_marker</code> is the <code>sha256</code> hash of the ascii string "taro".
+* <code>taro_version</code> is the version of the taro system which defines how the remainder of the commitment value is to be interpreted.
+* <code>asset_tree_root</code> is a 38 byte MS-SMT root.
+
 
 A <code>leaf_version</code> of ??? is selected. From the PoV of the Bitcoin
 system, we've simply committed to a tapscript leaf with an unparseable Script.
@@ -219,12 +225,13 @@ Taro-specific commitments, then the same or different leaf version can be used
 to gate verification of the new behavior.
 
 An <code>asset_id</code> is the 32-byte hash of: 
-* <code>sha256(genesis_outpoint || asset_tag || asset_meta)</code>
+* <code>sha256(genesis_outpoint || asset_tag || asset_meta || output_position)</code>
 
 where:
 * <code>genesis_outpoint</code> is the first previous input outpoint used in the asset genesis transaction serialized in Bitcoin wire format.
 * <code>asset_tag</code> is a random 32-byte value that represents a given asset, and can be used to link a series of discrete assets into a single asset family. In practice, this will typically be the hash of a human readable asset name.
 * <code>asset_meta</code> is an opaque 32-byte value that can be used to commit to various metadata including external links, documents, stats, attributes, images, etc. Importantly, this field is considered to be ''immutable''.
+* <code>output_position</code> is the output position of the output that caries the unique Taro commitment in the genesis transaction. 
 
 Given the above structure, the <code>asset_id</code> is guaranteed to be
 globally unique from the PoV of the chain, as thanks to
@@ -232,8 +239,23 @@ globally unique from the PoV of the chain, as thanks to
 as outpoints can never repeat once serialized within the block chain.
 
 In addition, we enforce a rule that a given output MUST only have a ''single''
-root Taro asset commitment (any other duplicates cannot be spent due to the way
-asset witnesses bind to the input outpoint). 
+root Taro asset commitment. In order to verify this property, we enforce the
+following constraints on the position of the root Taro asset tree commitment:
+* The asset root commitment MUST be the leftmost or rightmost leaf in the tapscript tree:
+** We enforce this by requiring the reveal of the taro commitment in the script tree to either be of depth 0 or 1.
+* For a reveal proof of depth 0, the Taro commitment is the only element in the control block proof, as it directly becomes the root hash.
+* For a reveal proof of depth 1, we require the prover to also reveal the pre-image of the sibling hash.
+** With a root position of depth 1, the Taro commitment is either the leftmost or rightmost element of the fully sorted tapscript tree.
+** Due to the lexicographical sorting of tap branches/leaves before hashing, we lose the ordering information here, and instead force reveal of the sibling pre-iamge.
+** To be a valid Taro root commitment, the sibling hash pre-image MUST either:
+*** Be exactly 32 bytes, which means that the sibling is itself a tap branch (a Taro root pre-image is itself 44 bytes: 2 byte version, 2 byte taro version, 32 byte hash, 8 byte sum value), as bound by its BIP-340 tagged hash tag.
+*** Or, is a tap leaf, as verifiable via the unique BIP-340 tagged hash tag.
+**** In this case, the leaf MUST be verified against the raw message digest to detect and reject duplicate Taro commitment inclusion in the tapscript tree (see the <code>taro_marker</code>).
+
+A deterministic algorithm that constructs a final taproot merkle tree hash
+given either a set of individual leaves, or a complete tapscript tree (the root
+hash) is decribed in <code>bip-taro-taproot-merkle-tree.mediawiki</code>.
+
 
 The <code>asset_tag</code> field cannot be enforced to be ''globally'' unique.
 Instead to ensure locally unique <code>asset_id</code> instances within initial
@@ -469,6 +491,23 @@ other normal script-path scripts within the tapscript tree.
 
 The above example creates only a single asset. It's possible to also create
 several assets within a single output, thereby batching asset creation.
+
+===Asset Burning===
+
+Given the requirement that Taro commitments be unique within the context of a
+tapscript commitment, Taro assets can also be ''provably burned''.
+
+In order to burn an asset, the holder of the asset can simply ''remove'' the
+Taro asset leaf from their asset tree.
+
+In order to prove to a 3rd party that an asset has been burnt, then holder of
+said asset must reveal the following information:
+* A non-inclusion proof rooted at their asset tree that proves that asset in question is no longer committed to.
+* A proof for each other top-level output in the burning transaction that assets the following:
+** For each output, the first depth of the control block leaf reveal must be presented:
+*** If the output key was created via BIP 86, then simply verify the mapping based on the internal key. In this case there is no script tree being committed to.
+*** If the proof is of depth 0, meaning only a single value is committed to, then assert the item isn't a valid Taro asset root.
+*** If the proof is of depth 1, then assert that either both elements are tap branches, or one of the items is a leaf that isn't a valid Taro asset root.
 
 ===Asset Transfers===
 
