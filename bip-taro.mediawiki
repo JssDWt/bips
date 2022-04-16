@@ -265,33 +265,33 @@ taro_commitment_is_valid(commitment_output: TxOut, control_block: ControlBlock,
     internal_key = parse_key(control_block.internal_key_bytes)
 
     match len(control_block.size):
-       // Just the internal public key, so we can just verify the commitment below.
+       # Just the internal public key, so we can just verify the commitment below.
        case 32:
            expected_output_key = internal_key + tagged_hash("TapTweak", internal_key || taro_root_hash)
 
            return expected_output_key == witness_program(commitment_output.pk_script)
 
-       // More than one element in the tree, so need to verify each sub-case.
+       # More than one element in the tree, so need to verify each sub-case.
        case 65:
            
            match sibling_preimage:
-               // The pre-image is a leaf, so verify the hashes match up.
+              #The pre-image is a leaf, so verify the hashes match up.
                case LeafReveal(leaf_bytes):
                    leaf_hash = tagged_hash("TapLeaf", leaf_bytes)
 
                    if leaf_hash != control_block.sibling_hash:
                        return false
 
-               // The pre-image is itself a branch, so we need the two siblings
-               // used to construct the branch.
+               # The pre-image is itself a branch, so we need the two siblings
+               # used to construct the branch.
                case BranchReveal(sibling_1, sibling_2):
                    expected_branch_hash = tagged_hash("TapBranch", sort(sibling_1, sibling_2))
 
                    if expected_branch_hash != construct.sibling_hash:
                        return false
 
-               // We know the tree is well formed now, so we'll verify the root
-               // commitment.
+               # We know the tree is well formed now, so we'll verify the root
+               # commitment.
                root_hash = tagged_hash("TapBranch", sort(taro_root_hash, control_block.sibling_hash))
 
                expected_output_key = internal_key + tagged_hash("TapTweak", internal_key || root_hash)
@@ -319,17 +319,17 @@ transaction doesn't commit to a duplicate Taro commitment:
 verify_no_taro_up_my_sleaves(genesis_tx: Tx, taro_root: []byte) -> bool
 
     for tx_out in genesis_tx.tx_outs:
-        // We can ignore any non-P2TR output, or outputs we know have a valid
-        // commitment already.
+        # We can ignore any non-P2TR output, or outputs we know have a valid
+        # commitment already.
         if commitment_expected(tx_out):
             continue
 
-        // We're expecting a commitment at this point, so we'll walk through
-        // our two cases.
+        # We're expecting a commitment at this point, so we'll walk through
+        # our two cases.
         match tx_out.taproot_commitment:
-            // A single leaf, so we just verify it isn't the taro commitment.
+            # A single leaf, so we just verify it isn't the taro commitment.
             case SingleLeaf(leaf_bytes, internal_key):
-               // Someone has some 'splaining to do...
+               # Someone has some 'splaining to do...
                if leaf_bytes == taro_root:
                    return falsse
 
@@ -339,8 +339,8 @@ verify_no_taro_up_my_sleaves(genesis_tx: Tx, taro_root: []byte) -> bool
                if expected_output_key != witness_program(tx_out.pk_script):
                    return false
 
-           // More than one element, so we just verify the opposite of what we
-           // expect for a unique commitment.
+           # More than one element, so we just verify the opposite of what we
+           # expect for a unique commitment.
            case MultiLeaf(branch_1, branch_2):
               if taro_commitment_is_valid(tx_out, tx_out.ctrl_block, branch_1.reveal, taro_root):
                   return false
